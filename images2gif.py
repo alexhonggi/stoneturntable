@@ -422,7 +422,9 @@ class GifWriter:
             occur.append(palettes.count(palette))
 
         # Select most-used palette as the global one (or first in case no max)
-        globalPalette = palettes[ occur.index(max(occur)) ]
+        print(len(occur), len(palettes))
+        if len(occur) != 0:
+            globalPalette = palettes[ occur.index(max(occur)) ]
 
         # Init
         frames = 0
