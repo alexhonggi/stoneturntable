@@ -4,3 +4,6 @@ video/
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 miscellaneous/
+0515/sound_font.sf2
+code/test/test.wav
+code/test.wav
