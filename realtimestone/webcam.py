@@ -27,6 +27,7 @@ args = parser.parse_args()
 
 note_midis = select_scale(args.scale)
 num_notes = len(note_midis)
+time_per_beat = round(1 / args.tempo, 6)
 
 
 cap = cv.VideoCapture(0)
@@ -47,84 +48,44 @@ cv.destroyWindow('mouse')
 cv.destroyAllWindows()
 cv.waitKey(1)
 
-
-
-num_area = (h // num_notes) if h % num_notes == 0 else (h // num_notes) + 1
-
+# num_area = (h // num_notes) if (h % num_notes == 0) else (h // num_notes + 1)
+n_tgt_area = h // num_notes
+n_res_area = h % num_notes
 
 client = init_client()
 frame_count = 0
 frame_skip_rate = args.skip
+pixel_threshold = args.threshold
 while(True):
-    magnitude = []
-    frame_num = []
     start = time.time()
-
     ret, frame = cap.read()
     if not ret:
         print('video error')
+        cv.waitKey(1)
+        cv.destroyAllWindows()
+        cv.waitKey(1)
         break
 
     roi = frame[y:y+h, x:x+args.pad]
     roi_gray = cv.cvtColor(roi, cv.COLOR_BGR2GRAY)
     cv.imshow('ROI', roi)
-
-    accumulated_pixel_color = 0
-
+    
     frame_count += 1
+    # Get pixel value of each row: saved in list(magnitude)
     if frame_count % frame_skip_rate == 0:
         start = time.time()
-        for roi_y_idx in range(h): 
-            """
-            if i is (h-1):
-                cnt = i % num_area
-                if((accumulated_pixel_color // cnt) < threshold):
-                    accumulated_pixel_color = threshold
-                # normalize
-                avg_color = accumulated_pixel_color // cnt
-                
-                
-                mag = avg_color
-                magnitude.append(mag)
-                frame_num.append(frame_count)
-                accumulated_pixel_color = 0
+        start_index = n_res_area // 2
+        end_index = h - (n_res_area - start_index)
+        assert (end_index - start_index) == (n_tgt_area * num_notes)
+        
+        data = []
+        for roi_y_idx in range(start_index, end_index):
+            magnitude = np.mean(roi_gray[roi_y_idx:roi_y_idx+n_tgt_area, :])
+            data.append({'frame_num': frame_count, 'magnitude': magnitude})
 
-            elif (i % num_area) is (num_area - 1):
-                # white = 255, black = 0. if whiter than 200, cap it to max_white
-                if((accumulated_pixel_color // num_area) < threshold):
-                    accumulated_pixel_color = 0
-                # normalize
-                avg_color = accumulated_pixel_color // num_area
-                
-                
-                mag = avg_color
-                magnitude.append(mag)
-                frame_num.append(frame_count)
-                accumulated_pixel_color = 0
-     
-            else:
-                accumulated_pixel_color += (255 - roi_gray[i][0])
-            """
-            # Exception: Increase accumulated_pixel_color if it is not the last pixel of the frame
-            if (roi_y_idx != h-1) and ((roi_y_idx % num_area) != (num_area-1)):
-                accumulated_pixel_color += (255 - roi_gray[roi_y_idx][0])
-
-            # Process accumulated_pixel_color if it is the last pixel of the frame
-            if (roi_y_idx == h-1) or ((roi_y_idx % num_area) == (num_area-1)):
-                cnt = (roi_y_idx % num_area) if (roi_y_idx == h-1) else num_area
-
-                if (accumulated_pixel_color // cnt) < args.threshold:
-                    accumulated_pixel_color = cnt * args.threshold
-
-                avg_color = accumulated_pixel_color // cnt
-                magnitude.append(avg_color)
-                frame_num.append(frame_count)
-                accumulated_pixel_color = 0
-
-        df = pd.DataFrame({'magnitude': magnitude, 'frame_num': frame_num})
-        n_midi = len(df)
-        frame_nums, magnitudes, indexes = df['frame_num'].values, df['magnitude'].values, df.index.values
-
+        df_gray_values = pd.DataFrame(data)
+        frame_nums = df_gray_values['frame_num'].values
+        magnitudes = df_gray_values['magnitude'].values
         # times_myrs = max(frame_nums) - frame_nums  #measure time from oldest crater (first impact) in data
         times_myrs = frame_nums
 
@@ -133,36 +94,22 @@ while(True):
         duration_beats = max(t_data)  #duration in beats (actually, onset of last note)
         print('Duration:', duration_beats, 'beats')
 
-        magnitude_normalizer = ValMapper('linear', magnitudes, min(magnitudes), max(magnitudes), 0, 1)
-        norm_magnitude = magnitude_normalizer() #normalize data from 0 to 1 
-        norm_scale = 1  #lower than 1 to spread out more evenly
-        norm_magnitude = norm_magnitude**norm_scale
-        pdb.set_trace()
-
-        midi_data = []
-        vel_data = []
-        velocity_mapper = ValMapper('linear', norm_magnitude[i]**1, 0, 1, args.vel_min, args.vel_max)
-
-        for i in range(n_midi):
-            # note_index = round(map_value(y_data[i], 0, 1, 0, num_notes-1))
-            note_index = indexes[i] % num_notes
-            midi_data.append(note_midis[note_index])
-
-            note_velocity = round(note_vel_mapper()) #bigger craters will be louder
-            #we round here because note velocites are integers
-            vel_data.append(note_velocity * 1)
-
+        magnitude2velocity = ValMapper('linear', magnitudes, min(magnitudes), max(magnitudes), args.vel_min, args.vel_max)
+        vel_data = magnitude2velocity() #normalize data from 0 to 1 
+        midi_data = [note_midis[i % num_notes] for i in range(df_gray_values.shape[0])]
+        # pdb.set_trace()
         client.send_message("/note", midi_data)
         client.send_message("/velocity", vel_data)
         time.sleep(0.25)
-                
+        end = time.time()
+        cost = time_per_beat - (end - start)
+        print(cost)
         if cv.waitKey(1) & 0xff == ord('q'):
             break
 
 
 cv.destroyAllWindows()
 cv.waitKey(1)
-
 # The following frees up resources and closes all windows
 cap.release()
 cv.destroyAllWindows()

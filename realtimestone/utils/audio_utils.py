@@ -1,3 +1,4 @@
+import math
 from audiolazy import str2midi
 
 
@@ -42,32 +43,37 @@ def select_scale(scale_selection="piano"):
 
 
 class ValMapper:
-    def __init__(self, mode: str, value: float, min_value: float, max_value: float, min_bound: int, max_bound: int):
+    def __init__(self, mode: str, value: list, min_value: float, max_value: float, min_bound: int, max_bound: int):
         self.mode = mode
         self.value = value
         self.min_value = min_value
         self.max_value = max_value
         self.min_bound = min_bound
         self.max_bound = max_bound
+        self.norm_scale = 1
 
     def norm(self):
-        return (self.value - self.min_value) / (self.max_value - self.min_value)
+        return [(v - self.min_value) / (self.max_value - self.min_value) for v in self.value]
 
     def mapper(self):
-        norm_value = self.norm()
+        norm_values = [v ** self.norm_scale for v in self.norm()]  # value between 0 and 1
+        results = []
         
-        if self.mode == 'linear':
-            result = norm_value
-        elif self.mode == 'log':
-            result = np.log(norm_value)
-        elif self.mode == 'exp':
-            result = np.exp(norm_value)
-        elif self.mode == 'sin':
-            result = np.sin(norm_value)
-        else:
-            raise ValueError(f"Invalid mode {self.mode}")
+        for norm_value in norm_values:
+            if self.mode == 'linear':
+                result = norm_value
+            elif self.mode == 'log':
+                result = np.log(norm_value) if norm_value > 0 else 0  # to avoid log(0)
+            elif self.mode == 'power':
+                result = np.power(norm_value, 2) # math.e
+            elif self.mode == 'sin':
+                result = np.sin(norm_value)
+            else:
+                raise ValueError(f"Invalid mode {self.mode}")
+            
+            results.append(self.min_bound + (self.max_bound - self.min_bound) * result)
         
-        return self.min_bound + (self.max_bound - self.min_bound) * result
+        return results
 
     def __call__(self):
         return self.mapper()
