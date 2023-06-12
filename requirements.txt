@@ -1,0 +1,4 @@
+opencv-python==4.6.0
+audiolazy==0.6
+pandas==1.4.2
+python-osc==1.8.1
